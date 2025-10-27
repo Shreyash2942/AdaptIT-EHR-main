@@ -5,6 +5,7 @@ import {
   Easing,
   GestureResponderEvent,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +14,6 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
-  Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
@@ -379,14 +379,14 @@ export default function AppointmentsScreen() {
       target === 'form-status'
         ? formStatusButtonRef.current
         : target === 'filter-status'
-        ? filterStatusButtonRef.current
-        : target === 'filter-patient'
-        ? filterPatientButtonRef.current
-        : target === 'filter-doctor'
-        ? filterDoctorButtonRef.current
-        : target === 'form-patient'
-        ? formPatientButtonRef.current
-        : formDoctorButtonRef.current
+          ? filterStatusButtonRef.current
+          : target === 'filter-patient'
+            ? filterPatientButtonRef.current
+            : target === 'filter-doctor'
+              ? filterDoctorButtonRef.current
+              : target === 'form-patient'
+                ? formPatientButtonRef.current
+                : formDoctorButtonRef.current
 
     setPickerTarget(target)
     setPickerPosition(null)
@@ -1184,8 +1184,10 @@ export default function AppointmentsScreen() {
 
     return (
       <View style={styles.formContent}>
+        {/* Form layout splits into two columns: left for selection controls, right for read-only info. */}
         <View style={styles.formRow}>
           <View style={styles.formColumn}>
+            {/* Doctor */}
             <View style={styles.formField}>
               <Text style={styles.formLabel}>
                 Doctor <Text style={styles.requiredMark}>*</Text>
@@ -1207,6 +1209,7 @@ export default function AppointmentsScreen() {
               </Pressable>
             </View>
 
+            {/* Service */}
             <View style={styles.formField}>
               <View style={styles.formLabelRow}>
                 <Text style={styles.formLabel}>
@@ -1218,7 +1221,7 @@ export default function AppointmentsScreen() {
               </View>
               <TouchableOpacity
                 style={styles.formInput}
-                onPress={interactive ? () => {} : undefined}
+                onPress={interactive ? () => { } : undefined}
                 activeOpacity={interactive ? 0.7 : 1}
               >
                 <Text style={styles.formPlaceholder}>Search</Text>
@@ -1226,6 +1229,7 @@ export default function AppointmentsScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Date */}
             <View style={styles.formField}>
               <Text nativeID="appointments-form-date-label" style={styles.formLabel}>
                 Appointment Date <Text style={styles.requiredMark}>*</Text>
@@ -1243,6 +1247,7 @@ export default function AppointmentsScreen() {
               />
             </View>
 
+            {/* Patient */}
             <View style={styles.formField}>
               <View style={styles.formLabelRow}>
                 <Text style={styles.formLabel}>
@@ -1269,6 +1274,7 @@ export default function AppointmentsScreen() {
               </Pressable>
             </View>
 
+            {/* Status */}
             <View style={styles.formField}>
               <Text style={styles.formLabel}>
                 Status <Text style={styles.requiredMark}>*</Text>
@@ -1289,6 +1295,7 @@ export default function AppointmentsScreen() {
             </View>
           </View>
 
+          {/* Right column */}
           <View style={styles.formColumn}>
             <View style={styles.formField}>
               <Text style={styles.formLabel}>
@@ -1298,14 +1305,12 @@ export default function AppointmentsScreen() {
                 <Text style={styles.slotPlaceholder}>No time slots found</Text>
               </View>
             </View>
-
             <View style={styles.formField}>
               <Text style={styles.formLabel}>Service Detail</Text>
               <View style={styles.infoBox}>
                 <Text style={styles.infoPlaceholder}>No service detail found..</Text>
               </View>
             </View>
-
             <View style={styles.formField}>
               <Text style={styles.formLabel}>Tax</Text>
               <View style={styles.infoBox}>
@@ -1315,12 +1320,13 @@ export default function AppointmentsScreen() {
           </View>
         </View>
 
+        {/* Footer buttons */}
         <View style={styles.formActions}>
           {interactive ? (
             <>
               <PageActionButton
                 label="Save"
-                onPress={() => {}}
+                onPress={() => { }}
                 icon={<Feather name="save" size={18} color="#FFFFFF" />}
               />
               <TouchableOpacity style={styles.cancelButton} onPress={toggleForm}>
@@ -1334,6 +1340,7 @@ export default function AppointmentsScreen() {
       </View>
     )
   }
+
 
   const renderPickerModal = () => {
     if (!pickerTarget) {
