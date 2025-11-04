@@ -290,6 +290,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 
 const DEFAULT_APPOINTMENT_DURATION_MINUTES = 30
 const APPOINTMENT_STORAGE_FILENAME = 'appointments.json'
+const APPOINTMENTS_PER_PAGE = 5
 
 const addMinutesToTime = (time: string, minutes: number) => {
   const [hours, mins] = time.split(':').map(Number)
@@ -621,6 +622,7 @@ export default function AppointmentsScreen() {
   const [formSlot, setFormSlot] = useState<string | null>(null)
   // Tracks which appointment is opened in the detail modal.
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentRow | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
   const [activeNativePicker, setActiveNativePicker] = useState<'filter' | 'form' | null>(null)
   const [pendingNativeDate, setPendingNativeDate] = useState(new Date())
   const filterStatusButtonRef = useRef<View | null>(null)
@@ -865,6 +867,26 @@ export default function AppointmentsScreen() {
     })
   }, [appointments, segmentKey, filterDate, filterStatus, filterPatient, filterDoctor])
 
+  const totalPages = Math.max(1, Math.ceil(filteredAppointments.length / APPOINTMENTS_PER_PAGE))
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [segmentKey, filterDate, filterStatus, filterPatient, filterDoctor])
+
+  useEffect(() => {
+    setCurrentPage((previous) => {
+      if (filteredAppointments.length === 0) {
+        return 1
+      }
+      return Math.min(previous, totalPages)
+    })
+  }, [filteredAppointments.length, totalPages])
+
+  const paginatedAppointments = useMemo(() => {
+    const startIndex = (currentPage - 1) * APPOINTMENTS_PER_PAGE
+    return filteredAppointments.slice(startIndex, startIndex + APPOINTMENTS_PER_PAGE)
+  }, [filteredAppointments, currentPage])
+
   const ensureExportDirectory = useCallback(async () => {
     const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory
     if (!baseDir) {
@@ -1050,6 +1072,16 @@ export default function AppointmentsScreen() {
   )
 
   // Helper flags determine visibility of bulk/exports (only when multiple records exist).
+  const pageAppointmentIds = useMemo(
+    () => paginatedAppointments.map((appointment) => appointment.id),
+    [paginatedAppointments],
+  )
+
+  const pageSelectedCount = useMemo(
+    () => pageAppointmentIds.filter((id) => selectedAppointmentIds.includes(id)).length,
+    [pageAppointmentIds, selectedAppointmentIds],
+  )
+
   const hasMultipleRecords = filteredAppointments.length > 1
   const showBulkDeleteAction = hasMultipleRecords
   const showExportButtons = hasMultipleRecords
@@ -1057,8 +1089,11 @@ export default function AppointmentsScreen() {
   const anySelected = selectedAppointmentIds.length > 0
   const allSelected =
     bulkDeleteActive &&
-    filteredAppointments.length > 0 &&
-    selectedAppointmentIds.length === filteredAppointments.length
+    pageAppointmentIds.length > 0 &&
+    pageSelectedCount === pageAppointmentIds.length
+  const shouldShowPagination = filteredAppointments.length > 0
+  const isPrevDisabled = currentPage <= 1
+  const isNextDisabled = currentPage >= totalPages
 
   // UI actions that open/close panels and dialogs.
   const toggleFilters = () =>
@@ -1189,10 +1224,19 @@ export default function AppointmentsScreen() {
 
   const toggleSelectAll = () => {
     setSelectedAppointmentIds((current) => {
+      if (pageAppointmentIds.length === 0) {
+        return current
+      }
+
       const currentIds = new Set(current)
-      const allIds = filteredAppointments.map((appointment) => appointment.id)
-      const isAllSelected = allIds.every((id) => currentIds.has(id))
-      return isAllSelected ? [] : allIds
+      const isAllSelected = pageAppointmentIds.every((id) => currentIds.has(id))
+
+      if (isAllSelected) {
+        return current.filter((id) => !pageAppointmentIds.includes(id))
+      }
+
+      pageAppointmentIds.forEach((id) => currentIds.add(id))
+      return Array.from(currentIds)
     })
   }
 
@@ -1211,6 +1255,14 @@ export default function AppointmentsScreen() {
     })
     setSelectedAppointmentIds([])
   }, [persistAppointments, selectedAppointmentIds])
+
+  const goToPreviousPage = useCallback(() => {
+    setCurrentPage((prev) => Math.max(1, prev - 1))
+  }, [])
+
+  const goToNextPage = useCallback(() => {
+    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+  }, [totalPages])
 
   // Backend integration: replace this local append with an API call when the appointments endpoint is ready.
   const handleSaveAppointment = useCallback(() => {
@@ -2509,7 +2561,7 @@ export default function AppointmentsScreen() {
                 <Text style={styles.emptyStateTitle}>No appointments found</Text>
               </View>
             ) : (
-              filteredAppointments.map((appointment) => {
+              paginatedAppointments.map((appointment) => {
                 const isSelected = selectedAppointmentIds.includes(appointment.id)
                 const statusPalette = STATUS_STYLES[appointment.status] ?? STATUS_STYLES.Booked
                 const formattedDate = formatDisplayDate(appointment.schedule.date)
@@ -2654,6 +2706,41 @@ export default function AppointmentsScreen() {
                   </View>
                 )
               })
+            )}
+            {shouldShowPagination && (
+              <View
+                style={[styles.paginationWrapper, isSmallScreen && styles.paginationWrapperSmall]}
+              >
+                <Pressable
+                  onPress={goToPreviousPage}
+                  disabled={isPrevDisabled}
+                  accessibilityRole="button"
+                  accessibilityLabel="View previous appointments"
+                  style={({ pressed }) => [
+                    styles.paginationButton,
+                    isPrevDisabled && styles.paginationButtonDisabled,
+                    pressed && !isPrevDisabled && styles.paginationButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.paginationButtonText}>Prev</Text>
+                </Pressable>
+                <View style={styles.paginationCurrent}>
+                  <Text style={styles.paginationCurrentText}>{currentPage}</Text>
+                </View>
+                <Pressable
+                  onPress={goToNextPage}
+                  disabled={isNextDisabled}
+                  accessibilityRole="button"
+                  accessibilityLabel="View next appointments"
+                  style={({ pressed }) => [
+                    styles.paginationButton,
+                    isNextDisabled && styles.paginationButtonDisabled,
+                    pressed && !isNextDisabled && styles.paginationButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.paginationButtonText}>Next</Text>
+                </Pressable>
+              </View>
             )}
           </View>
         </Card>
@@ -3443,6 +3530,64 @@ const styles = StyleSheet.create({
   tableContainer: {
     marginTop: Styles.spacing.md,
     gap: Styles.spacing.md,
+  },
+  paginationWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: Styles.spacing.lg,
+    gap: Styles.spacing.sm,
+  },
+  paginationWrapperSmall: {
+    justifyContent: 'center',
+  },
+  paginationButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: '#2F6FE1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0C1F3F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 9,
+    elevation: 6,
+  },
+  paginationButtonPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  paginationButtonDisabled: {
+    opacity: 0.45,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  paginationButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2F6FE1',
+  },
+  paginationCurrent: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: '#2F6FE1',
+    backgroundColor: '#2F6FE1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0C1F3F',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 7,
+  },
+  paginationCurrentText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   tableHeaderRow: {
     flexDirection: 'row',
