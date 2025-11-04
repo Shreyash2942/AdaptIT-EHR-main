@@ -52,5 +52,161 @@
     "auditTrail": [
       "APP MOD from admin1 :"
     ]
+  },
+  {
+    "id": "3",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient3",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2024-08-14",
+      "startTime": "14:00",
+      "endTime": "14:45"
+    },
+    "provider": "AdaptIT_Sample_Doctor3 (Dermatology)",
+    "clinic": "AdaptIT Specialist Clinic",
+    "service": "Skin Screening",
+    "description": "Routine skin exam",
+    "charges": {
+      "amount": 95,
+      "currency": "CAD"
+    },
+    "paymentMode": "Manual",
+    "status": "Completed(check-out)",
+    "patientContact": "312-555-0126",
+    "auditTrail": [
+      "Created via sample data seed"
+    ]
+  },
+  {
+    "id": "4",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient1",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2025-02-10",
+      "startTime": "11:30",
+      "endTime": "12:00"
+    },
+    "provider": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "clinic": "AdaptIT Sample Clinic",
+    "service": "Blood Pressure Follow-up",
+    "description": "Check new medication response",
+    "charges": {
+      "amount": 65,
+      "currency": "CAD"
+    },
+    "paymentMode": "Manual",
+    "status": "Upcoming",
+    "patientContact": "608-213-5806",
+    "auditTrail": [
+      "Created via sample data seed"
+    ]
+  },
+  {
+    "id": "5",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient2",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2025-05-22",
+      "startTime": "08:30",
+      "endTime": "09:00"
+    },
+    "provider": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "clinic": "AdaptIT Specialist Clinic",
+    "service": "Neurology Consultation",
+    "description": "Six-month migraine review",
+    "charges": {
+      "amount": 180,
+      "currency": "CAD"
+    },
+    "paymentMode": "Insurance",
+    "status": "Upcoming",
+    "patientContact": "403-555-8890",
+    "auditTrail": [
+      "Follow-up scheduled through patient portal"
+    ]
+  },
+  {
+    "id": "6",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient3",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2025-12-03",
+      "startTime": "15:00",
+      "endTime": "15:30"
+    },
+    "provider": "AdaptIT_Sample_Doctor4 (Endocrinology)",
+    "clinic": "AdaptIT Specialty Centre",
+    "service": "Diabetes Management Visit",
+    "description": "Upcoming HbA1c review",
+    "charges": {
+      "amount": 120,
+      "currency": "CAD"
+    },
+    "paymentMode": "Manual",
+    "status": "Upcoming",
+    "patientContact": "312-555-0126",
+    "auditTrail": [
+      "Created via sample data seed"
+    ]
+  },
+  {
+    "id": "7",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient1",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2024-05-02",
+      "startTime": "13:00",
+      "endTime": "13:30"
+    },
+    "provider": "AdaptIT_Sample_Doctor5 (Physiotherapy)",
+    "clinic": "AdaptIT Rehab Clinic",
+    "service": "Post-operative Physio",
+    "description": "Knee replacement rehab session",
+    "charges": {
+      "amount": 75,
+      "currency": "CAD"
+    },
+    "paymentMode": "Manual",
+    "status": "Cancelled",
+    "patientContact": "608-213-5806",
+    "auditTrail": [
+      "Cancelled by patient due to conflict"
+    ]
+  },
+  {
+    "id": "8",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient2",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2023-11-19",
+      "startTime": "16:00",
+      "endTime": "16:30"
+    },
+    "provider": "AdaptIT_Sample_Doctor6 (Cardiology)",
+    "clinic": "AdaptIT Heart Centre",
+    "service": "Cardiac Stress Test",
+    "description": "Post-stent stress evaluation",
+    "charges": {
+      "amount": 220,
+      "currency": "CAD"
+    },
+    "paymentMode": "Insurance",
+    "status": "Completed(check-out)",
+    "patientContact": "403-555-8890",
+    "auditTrail": [
+      "Finalized report sent to referring physician"
+    ]
   }
 ]
