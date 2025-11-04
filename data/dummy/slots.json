@@ -1,0 +1,88 @@
+[
+  {
+    "doctor": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "service": "Mild Illness Assessment",
+    "date": "2025-09-18",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["10:00", "10:30"]
+      },
+      {
+        "label": "Session 2",
+        "slots": ["13:00", "13:30"]
+      }
+    ]
+  },
+  {
+    "doctor": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "service": "Mild Illness Assessment",
+    "date": "2025-09-19",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["09:00", "09:30"]
+      },
+      {
+        "label": "Session 2",
+        "slots": ["11:00", "11:30", "12:00"]
+      }
+    ]
+  },
+  {
+    "doctor": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "service": "Neurology Consultation",
+    "date": "2023-03-08",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["09:00", "09:30"]
+      }
+    ]
+  },
+  {
+    "doctor": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "service": "Neurology Consultation",
+    "date": "2023-03-09",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["10:00", "10:45"]
+      },
+      {
+        "label": "Session 2",
+        "slots": ["14:00", "14:45"]
+      }
+    ]
+  },
+  {
+    "doctor": "AdaptIT_Sample_Doctor3 (Pediatrics)",
+    "service": "Pediatric Wellness Visit",
+    "date": "2025-11-01",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["11:00", "11:30"]
+      },
+      {
+        "label": "Session 2",
+        "slots": ["14:00"]
+      }
+    ]
+  },
+  {
+    "doctor": "AdaptIT_Sample_Doctor3 (Pediatrics)",
+    "service": "Pediatric Wellness Visit",
+    "date": "2025-11-02",
+    "sessions": [
+      {
+        "label": "Session 1",
+        "slots": ["09:30", "10:00", "10:30"]
+      },
+      {
+        "label": "Session 2",
+        "slots": ["13:30", "14:00"]
+      }
+    ]
+  }
+]

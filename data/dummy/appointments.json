@@ -1,0 +1,56 @@
+[
+  {
+    "id": "1",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient1",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2025-09-18",
+      "startTime": "10:00",
+      "endTime": "10:30"
+    },
+    "provider": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "clinic": "AdaptIT Sample Clinic",
+    "service": "Mild Illness Assessment",
+    "description": "No Records Found",
+    "charges": {
+      "amount": 50,
+      "currency": "CAD"
+    },
+    "paymentMode": "Manual",
+    "status": "Booked",
+    "patientContact": "608-213-5806",
+    "auditTrail": [
+      "APP MOD from Webmaster :",
+      "APP MOD from admin1 :",
+      "APP MOD from admin2 :"
+    ]
+  },
+  {
+    "id": "2",
+    "patient": {
+      "name": "AdaptIT_Sample_Patient2",
+      "initials": "A"
+    },
+    "schedule": {
+      "date": "2023-03-08",
+      "startTime": "09:00",
+      "endTime": "09:30"
+    },
+    "provider": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "clinic": "AdaptIT Specialist Clinic",
+    "service": "Neurology Consultation",
+    "description": "Discuss recovery progress",
+    "charges": {
+      "amount": 180,
+      "currency": "CAD"
+    },
+    "paymentMode": "Insurance",
+    "status": "Completed(check-out)",
+    "patientContact": "403-555-8890",
+    "auditTrail": [
+      "APP MOD from admin1 :"
+    ]
+  }
+]
