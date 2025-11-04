@@ -1,0 +1,17 @@
+[
+  {
+    "value": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "label": "AdaptIT_Sample_Doctor1 (Family Medicine)",
+    "clinic": "AdaptIT Sample Clinic"
+  },
+  {
+    "value": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "label": "AdaptIT_Sample_Doctor2 (Neurology)",
+    "clinic": "AdaptIT Specialist Clinic"
+  },
+  {
+    "value": "AdaptIT_Sample_Doctor3 (Pediatrics)",
+    "label": "AdaptIT_Sample_Doctor3 (Pediatrics)",
+    "clinic": "AdaptIT Children's Health"
+  }
+]

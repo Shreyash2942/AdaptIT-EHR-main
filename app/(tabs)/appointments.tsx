@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
+  Alert,
   Easing,
   GestureResponderEvent,
-  Modal,
+  Modal as RNModal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +17,21 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import * as FileSystem from 'expo-file-system'
+import * as Sharing from 'expo-sharing'
+import * as Print from 'expo-print'
+import Modal from 'react-native-modal'
+import { jsPDF } from 'jspdf/dist/jspdf.es.min.js'
+import autoTable from 'jspdf-autotable'
+import appointmentsData from '@/data/dummy/appointments.json'
+import doctorsData from '@/data/dummy/doctors.json'
+import patientsData from '@/data/dummy/patients.json'
+import servicesData from '@/data/dummy/services.json'
+import { Card } from '@/components/ui/Card'
+import { PageActionButton } from '@/components/ui/PageActionButton'
+import { SegmentedControl } from '@/components/ui/SegmentedControl'
+import { Colors } from '@/constants/Colors'
+import { Styles } from '@/constants/Styles'
 
 declare global {
   namespace JSX {
@@ -85,12 +101,6 @@ if (!isWebPlatform) {
 
 const NativeDateTimePicker = NativeDateTimePickerModule?.default ?? NativeDateTimePickerModule
 const NativeDateTimePickerAndroid = NativeDateTimePickerModule?.DateTimePickerAndroid
-
-import { Card } from '@/components/ui/Card'
-import { PageActionButton } from '@/components/ui/PageActionButton'
-import { SegmentedControl } from '@/components/ui/SegmentedControl'
-import { Colors } from '@/constants/Colors'
-import { Styles } from '@/constants/Styles'
 
 // ------------------------------
 // Data models and configuration.
@@ -165,25 +175,46 @@ type PickerTarget =
   | 'filter-doctor'
   | 'form-patient'
   | 'form-doctor'
+  | 'form-service'
 type PickerPosition = { x: number; y: number; width: number; height: number }
 
-const PATIENT_OPTIONS = [
-  { value: 'AdaptIT_Sample_Patient1', label: 'AdaptIT_Sample_Patient1' },
-  { value: 'AdaptIT_Sample_Patient2', label: 'AdaptIT_Sample_Patient2' },
-] as const
+type PickerOption = { value: string; label: string }
+type PatientOption = PickerOption & { initials?: string; contact?: string }
+type DoctorOption = PickerOption & { clinic?: string }
+type ServiceOption = PickerOption & {
+  description: string
+  tax: string
+  charge?: { amount: number; currency: string }
+  durationMinutes?: number
+}
+
+const PATIENT_OPTIONS = patientsData as PatientOption[]
 
 type PatientOptionValue = (typeof PATIENT_OPTIONS)[number]['value']
 type FilterPatientValue = 'all' | PatientOptionValue
 
-const DOCTOR_OPTIONS = [
-  { value: 'AdaptIT_Sample_Doctor1 (Family Medicine)', label: 'AdaptIT_Sample_Doctor1 (Family Medicine)' },
-  { value: 'AdaptIT_Sample_Doctor2 (Neurology)', label: 'AdaptIT_Sample_Doctor2 (Neurology)' },
-] as const
+const DOCTOR_OPTIONS = doctorsData as DoctorOption[]
 
 type DoctorOptionValue = (typeof DOCTOR_OPTIONS)[number]['value']
 type FilterDoctorValue = 'all' | DoctorOptionValue
 
-const FILTER_STATUS_BASE_OPTIONS: Array<{ value: AppointmentStatus; label: string }> = [
+const SERVICE_OPTIONS = servicesData as ServiceOption[]
+type ServiceOptionValue = (typeof SERVICE_OPTIONS)[number]['value']
+
+type SlotSession = { label: string; slots: string[] }
+// Temporary default slot sessions; replace with backend-driven availability when ready.
+const DEFAULT_SLOT_SESSIONS: SlotSession[] = [
+  {
+    label: 'Session 1',
+    slots: ['10:00', '10:30'],
+  },
+  {
+    label: 'Session 2',
+    slots: ['13:00', '13:30'],
+  },
+]
+
+const FILTER_STATUS_BASE_OPTIONS: { value: AppointmentStatus; label: string }[] = [
   { value: 'Upcoming', label: 'Upcoming' },
   { value: 'Completed(check-out)', label: 'Completed(check-out)' },
   { value: 'Cancelled', label: 'Cancelled' },
@@ -191,20 +222,20 @@ const FILTER_STATUS_BASE_OPTIONS: Array<{ value: AppointmentStatus; label: strin
   { value: 'Pending', label: 'Pending' },
 ]
 
-const FILTER_STATUS_OPTIONS: Array<{ value: FilterStatusValue; label: string }> = [
+const FILTER_STATUS_OPTIONS: { value: FilterStatusValue; label: string }[] = [
   { value: 'all', label: 'All' },
   ...FILTER_STATUS_BASE_OPTIONS,
 ]
 
-const FILTER_PATIENT_OPTIONS: Array<{ value: FilterPatientValue; label: string }> = [
+const FILTER_PATIENT_OPTIONS: { value: FilterPatientValue; label: string }[] = [
   ...PATIENT_OPTIONS,
 ]
 
-const FILTER_DOCTOR_OPTIONS: Array<{ value: FilterDoctorValue; label: string }> = [
+const FILTER_DOCTOR_OPTIONS: { value: FilterDoctorValue; label: string }[] = [
   ...DOCTOR_OPTIONS,
 ]
 
-const FORM_STATUS_OPTIONS: Array<{ value: AppointmentStatus; label: string }> = [
+const FORM_STATUS_OPTIONS: { value: AppointmentStatus; label: string }[] = [
   { value: 'Booked', label: 'Booked' },
   { value: 'Pending', label: 'Pending' },
   { value: 'Completed(check-out)', label: 'Check out' },
@@ -224,19 +255,31 @@ const getStatusOptionLabel = (value: FilterStatusValue) => {
   return match?.label ?? value
 }
 
+const getPatientOption = (value: PatientOptionValue) =>
+  PATIENT_OPTIONS.find((option) => option.value === value)
+
 const getPatientOptionLabel = (value: FilterPatientValue) => {
   if (value === 'all') {
     return 'All'
   }
-  return PATIENT_OPTIONS.find((option) => option.value === value)?.label ?? value
+  return getPatientOption(value as PatientOptionValue)?.label ?? value
 }
+
+const getDoctorOption = (value: DoctorOptionValue) =>
+  DOCTOR_OPTIONS.find((option) => option.value === value)
 
 const getDoctorOptionLabel = (value: FilterDoctorValue) => {
   if (value === 'all') {
     return 'All'
   }
-  return DOCTOR_OPTIONS.find((option) => option.value === value)?.label ?? value
+  return getDoctorOption(value as DoctorOptionValue)?.label ?? value
 }
+
+const getServiceOption = (value: ServiceOptionValue) =>
+  SERVICE_OPTIONS.find((option) => option.value === value)
+
+const getServiceOptionLabel = (value: ServiceOptionValue) =>
+  getServiceOption(value)?.label ?? value
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   CAD: '$',
@@ -245,57 +288,39 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: '\u00A3',
 }
 
-// Backend integration: replace this stub with data from your appointments API.
-const APPOINTMENTS: AppointmentRow[] = [
-  {
-    id: '1',
-    patient: {
-      name: 'AdaptIT_Sample_Patient1',
-      initials: 'A',
-    },
-    schedule: {
-      date: '2025-09-18',
-      startTime: '10:00',
-      endTime: '10:30',
-    },
-    provider: 'AdaptIT_Sample_Doctor1 (Family Medicine)',
-    clinic: 'AdaptIT Sample Clinic',
-    service: 'Mild Illness Assessment',
-    description: 'No Records Found',
-    charges: {
-      amount: 50,
-      currency: 'CAD',
-    },
-    paymentMode: 'Manual',
-    status: 'Booked',
-    patientContact: '608-213-5806',
-    auditTrail: ['APP MOD from Webmaster :', 'APP MOD from admin1 :', 'APP MOD from admin2 :'],
-  },
-  {
-    id: '2',
-    patient: {
-      name: 'AdaptIT_Sample_Patient2',
-      initials: 'A',
-    },
-    schedule: {
-      date: '2023-03-08',
-      startTime: '09:00',
-      endTime: '09:30',
-    },
-    provider: 'AdaptIT_Sample_Doctor2 (Neurology)',
-    clinic: 'AdaptIT Specialist Clinic',
-    service: 'Neurology Consultation',
-    description: 'Discuss recovery progress',
-    charges: {
-      amount: 120,
-      currency: 'USD',
-    },
-    paymentMode: 'Insurance',
-    status: 'Completed(check-out)',
-    patientContact: '403-555-8890',
-    auditTrail: ['APP MOD from admin1 :'],
-  },
-]
+const DEFAULT_APPOINTMENT_DURATION_MINUTES = 30
+const APPOINTMENT_STORAGE_FILENAME = 'appointments.json'
+
+const addMinutesToTime = (time: string, minutes: number) => {
+  const [hours, mins] = time.split(':').map(Number)
+  if (Number.isNaN(hours) || Number.isNaN(mins)) {
+    return time
+  }
+  const date = new Date(0, 0, 0, hours, mins + minutes)
+  const h = String(date.getHours()).padStart(2, '0')
+  const m = String(date.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+const deriveEndTime = (startTime: string, service?: ServiceOption | null) => {
+  const duration = service?.durationMinutes ?? DEFAULT_APPOINTMENT_DURATION_MINUTES
+  return addMinutesToTime(startTime, duration)
+}
+
+const extractInitials = (label: string) => {
+  const segments = label
+    .split(/\s+/)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+  if (segments.length === 0) {
+    return label.slice(0, 2).toUpperCase()
+  }
+  const initials = segments.slice(0, 2).map((segment) => segment.charAt(0).toUpperCase())
+  return initials.join('') || label.slice(0, 2).toUpperCase()
+}
+
+// Backend integration: currently sourcing dummy data from `data/dummy/appointments.json`.
+const APPOINTMENTS_SEED = appointmentsData as AppointmentRow[]
 
 // Helper: render ISO date strings as DD-MM-YYYY for consistency with UI comps.
 const formatDisplayDate = (date: string) => {
@@ -326,13 +351,241 @@ const getScheduleDateTime = (schedule: AppointmentRow['schedule']) =>
   new Date(`${schedule.date}T${schedule.startTime}`)
 
 // Helper: group audit trail entries into two-column rows for the detail modal.
-const chunkAuditTrail = (entries: string[]): Array<[string, string]> => {
-  const rows: Array<[string, string]> = []
+const chunkAuditTrail = (entries: string[]): [string, string][] => {
+  const rows: [string, string][] = []
   for (let index = 0; index < entries.length; index += 2) {
-    rows.push([entries[index] ?? '—', entries[index + 1] ?? ''])
+    rows.push([entries[index] ?? '-', entries[index + 1] ?? ''])
   }
   return rows
 }
+const getTodayISO = () => new Date().toISOString().split('T')[0]
+
+type AppointmentExportRow = {
+  id: string
+  patient: string
+  contact: string
+  date: string
+  time: string
+  provider: string
+  clinic: string
+  service: string
+  status: string
+  charge: string
+  paymentMode: string
+}
+
+const EXPORT_HEADERS: (keyof AppointmentExportRow)[] = [
+  'id',
+  'patient',
+  'contact',
+  'date',
+  'time',
+  'provider',
+  'clinic',
+  'service',
+  'status',
+  'charge',
+  'paymentMode',
+]
+
+const EXPORT_HEADER_LABELS: Record<keyof AppointmentExportRow, string> = {
+  id: 'Appointment ID',
+  patient: 'Patient',
+  contact: 'Contact',
+  date: 'Date',
+  time: 'Time',
+  provider: 'Provider',
+  clinic: 'Clinic',
+  service: 'Service',
+  status: 'Status',
+  charge: 'Charge',
+  paymentMode: 'Payment Mode',
+}
+
+const escapeCsvValue = (value: string) => {
+  const sanitized = value.replace(/"/g, '""')
+  if (/["\n,]/.test(sanitized)) {
+    return `"${sanitized}"`
+  }
+  return sanitized
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const buildExportRows = (appointments: AppointmentRow[]): AppointmentExportRow[] =>
+  appointments.map((appointment) => ({
+    id: appointment.id,
+    patient: appointment.patient.name,
+    contact: appointment.patientContact ?? '',
+    date: formatDisplayDate(appointment.schedule.date),
+    time: buildTimeWindow(appointment.schedule),
+    provider: appointment.provider,
+    clinic: appointment.clinic ?? '',
+    service: appointment.service,
+    status: appointment.status,
+    charge: formatChargeLabel(appointment.charges),
+    paymentMode: appointment.paymentMode,
+  }))
+
+const buildCsvContent = (rows: AppointmentExportRow[]) => {
+  const headerLine = EXPORT_HEADERS.map((key) => escapeCsvValue(EXPORT_HEADER_LABELS[key])).join(',')
+  const dataLines = rows.map((row) =>
+    EXPORT_HEADERS.map((key) => escapeCsvValue(row[key])).join(','),
+  )
+  return `\uFEFF${[headerLine, ...dataLines].join('\n')}`
+}
+
+const buildHtmlTableDocument = (rows: AppointmentExportRow[], title: string) => {
+  const headerCells = EXPORT_HEADERS.map(
+    (key) => `<th>${escapeHtml(EXPORT_HEADER_LABELS[key])}</th>`,
+  ).join('')
+  const bodyRows = rows
+    .map(
+      (row) =>
+        `<tr>${EXPORT_HEADERS.map((key) => `<td>${escapeHtml(row[key])}</td>`).join('')}</tr>`,
+    )
+    .join('')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      body { font-family: 'Segoe UI', Roboto, Arial, sans-serif; margin: 24px; color: #1F3D6E; }
+      h1 { font-size: 20px; margin-bottom: 16px; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #C8D7ED; padding: 8px 10px; text-align: left; font-size: 12px; }
+      thead { background-color: #E3EFFD; }
+      tbody tr:nth-child(even) { background-color: #F8FBFF; }
+    </style>
+  </head>
+  <body>
+    <h1>${escapeHtml(title)}</h1>
+    <table>
+      <thead>
+        <tr>${headerCells}</tr>
+      </thead>
+      <tbody>
+        ${bodyRows}
+      </tbody>
+    </table>
+  </body>
+</html>`
+}
+
+const buildAppointmentPrintHtml = (appointment: AppointmentRow) => {
+  const safe = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+
+  const appointmentDate = formatDisplayDate(appointment.schedule.date)
+  const appointmentTime = appointment.schedule.startTime
+  const patientName = safe(appointment.patient.name)
+  const provider = safe(appointment.provider)
+  const clinic = safe(appointment.clinic ?? 'AdaptIT Sample Clinic')
+  const service = safe(appointment.service)
+  const description = safe(appointment.description || '-')
+  const paymentMode = safe(appointment.paymentMode)
+  const charge = safe(formatChargeLabel(appointment.charges))
+  const patientContact = safe(appointment.patientContact ?? '-')
+  const reportDate = formatDisplayDate(getTodayISO())
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Appointment - ${patientName}</title>
+    <style>
+      @page { margin: 0; }
+      * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      body { margin: 32px; color: #1F3D6E; background-color: #FFFFFF; }
+      .card { border-radius: 16px; border: 1px solid #E0E7F5; overflow: hidden; }
+      .header { padding: 18px 28px 12px; background-color: #EEF4FB; position: relative; }
+      .logo { font-size: 28px; font-weight: 700; color: #1F6FE1; text-align: center; margin-bottom: 8px; }
+      .clinic-row { display: flex; justify-content: space-between; font-size: 14px; line-height: 1.8; margin-top: 8px; }
+      .clinic-section { width: 48%; }
+      .clinic-divider { margin: 18px 0 14px; height: 0; border-top: 4px solid #307BC4; border-radius: 999px; }
+      .patient-row { display: flex; justify-content: space-between; font-size: 14px; line-height: 1.8; margin-top: 10px; }
+      .section { padding: 28px; background-color: #EBF2F7; border: 1px solid #D6E1EF; border-radius: 12px; margin: 18px 28px; }
+      .section-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+      .info-grid { display: flex; flex-wrap: wrap; gap: 18px; }
+      .info-item { width: calc(50% - 9px); font-size: 14px; line-height: 1.8; }
+      .info-label { font-weight: 700; margin-right: 6px; }
+      .section-divider { height: 1px; background-color: #D6E1EF; margin: 20px 0; }
+      .date-label { position: absolute; top: 14px; right: 28px; font-size: 14px; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="card section">
+      <div class="header">
+        <div class="logo">AdaptIT Sample Clinic</div>
+        <div class="date-label">Date: ${reportDate}</div>
+        <div class="clinic-row">
+          <div class="clinic-section">
+            <div style="font-weight: 700;">${provider}</div>
+            <div><strong>Address:</strong> #132 Fake Street, Toronto, 3C2 B1A, Canada</div>
+          </div>
+          <div class="clinic-section" style="text-align:right;">
+            <div><strong>Date:</strong> ${reportDate}</div>
+            <div><strong>Contact:</strong> (987) 654-3210</div>
+            <div><strong>Email:</strong> adaptitsampleclinic@zodiac.tech</div>
+          </div>
+        </div>
+        <div class="clinic-divider"></div>
+        <div class="patient-row">
+          <div>
+            <div><strong>Patient Name:</strong> ${patientName}</div>
+            <div><strong>Email:</strong> adaptIT_sample_patient@zodiac.tech</div>
+          </div>
+          <div style="text-align:right;">
+            <div><strong>Gender:</strong> M</div>
+            <div><strong>Contact No:</strong> ${patientContact}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card section" style="margin-top: 18px;">
+      <div class="section-title">Appointment Detail</div>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Appointment Date:</span> ${appointmentDate}
+        </div>
+        <div class="info-item">
+          <span class="info-label">Appointment Time:</span> ${appointmentTime}
+        </div>
+        <div class="info-item">
+          <span class="info-label">Appointment Status:</span> ${safe(appointment.status)}
+        </div>
+        <div class="info-item">
+          <span class="info-label">Payment Mode:</span> ${paymentMode}
+        </div>
+        <div class="info-item">
+          <span class="info-label">Service:</span> ${service}
+        </div>
+        <div class="info-item">
+          <span class="info-label">Total Bill Payment:</span> ${charge}
+        </div>
+      </div>
+      <div class="section-title">Other Info</div>
+      <div class="info-item" style="width:100%;">
+        <span class="info-label">Description:</span> <span class="info-value">${description}</span>
+      </div>
+    </div>
+  </body>
+</html>`
+}
+
 // Primary screen component that hosts filters, creation form, list, and import modal.
 export default function AppointmentsScreen() {
   // UI state: selected filter tab, panel expansion flags, import modal.
@@ -344,10 +597,18 @@ export default function AppointmentsScreen() {
   const [measuredFilterHeight, setMeasuredFilterHeight] = useState(0)
   const [measuredFormHeight, setMeasuredFormHeight] = useState(0)
   // Hover state for export buttons (web only) and bulk delete mode toggle.
-  const getTodayISO = () => new Date().toISOString().split('T')[0]
   const [hoveredExport, setHoveredExport] = useState<ExportOptionId | null>(null)
   const [bulkDeleteEnabled, setBulkDeleteEnabled] = useState(false)
+  // Persist dummy appointments to Expo's document directory until a backend replaces this flow.
+  const appointmentsStorageUri =
+    FileSystem.documentDirectory != null
+      ? `${FileSystem.documentDirectory}${APPOINTMENT_STORAGE_FILENAME}`
+      : null
+  const [appointments, setAppointments] = useState<AppointmentRow[]>(APPOINTMENTS_SEED)
   const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<string[]>([])
+  const [pendingDeleteAppointment, setPendingDeleteAppointment] = useState<AppointmentRow | null>(
+    null,
+  )
   const [filterDate, setFilterDate] = useState('')
   const [filterStatus, setFilterStatus] = useState<FilterStatusValue>('all')
   const [filterPatient, setFilterPatient] = useState<FilterPatientValue>('all')
@@ -356,6 +617,8 @@ export default function AppointmentsScreen() {
   const [formStatus, setFormStatus] = useState<AppointmentStatus>('Booked')
   const [formPatient, setFormPatient] = useState<PatientOptionValue | null>(null)
   const [formDoctor, setFormDoctor] = useState<DoctorOptionValue | null>(null)
+  const [formService, setFormService] = useState<ServiceOptionValue | null>(null)
+  const [formSlot, setFormSlot] = useState<string | null>(null)
   // Tracks which appointment is opened in the detail modal.
   const [selectedAppointment, setSelectedAppointment] = useState<AppointmentRow | null>(null)
   const [activeNativePicker, setActiveNativePicker] = useState<'filter' | 'form' | null>(null)
@@ -366,8 +629,108 @@ export default function AppointmentsScreen() {
   const formStatusButtonRef = useRef<View | null>(null)
   const formPatientButtonRef = useRef<View | null>(null)
   const formDoctorButtonRef = useRef<View | null>(null)
+  const formServiceButtonRef = useRef<View | null>(null)
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null)
   const [pickerPosition, setPickerPosition] = useState<PickerPosition | null>(null)
+  // Persisted appointments: load from local JSON (Expo document directory) and fall back to bundled seed.
+  useEffect(() => {
+    let isMounted = true
+    const loadPersistedAppointments = async () => {
+      if (!appointmentsStorageUri) {
+        return
+      }
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(appointmentsStorageUri)
+        if (!fileInfo.exists) {
+          return
+        }
+        const raw = await FileSystem.readAsStringAsync(appointmentsStorageUri)
+        if (!raw) {
+          return
+        }
+        const parsed = JSON.parse(raw) as AppointmentRow[]
+        if (Array.isArray(parsed) && isMounted) {
+          setAppointments(parsed)
+        }
+      } catch (error) {
+        console.warn(
+          'Unable to load persisted appointments JSON. Falling back to bundled seed data.',
+          error,
+        )
+      }
+    }
+
+    loadPersistedAppointments()
+
+    return () => {
+      isMounted = false
+    }
+  }, [appointmentsStorageUri])
+
+  // Backend integration: replace this stub with API mutations when wiring to the server.
+  const persistAppointments = useCallback(
+    async (records: AppointmentRow[]) => {
+      if (!appointmentsStorageUri) {
+        return
+      }
+      try {
+        await FileSystem.writeAsStringAsync(
+          appointmentsStorageUri,
+          JSON.stringify(records, null, 2),
+        )
+      } catch (error) {
+        console.warn('Unable to persist appointments JSON locally.', error)
+      }
+    },
+    [appointmentsStorageUri],
+  )
+
+  const resetFormFields = useCallback(() => {
+    setFormAppointmentDate(getTodayISO())
+    setFormStatus('Booked')
+    setFormPatient(null)
+    setFormDoctor(null)
+    setFormService(null)
+    setFormSlot(null)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedAppointment) {
+      return
+    }
+    const exists = appointments.some((appointment) => appointment.id === selectedAppointment.id)
+    if (!exists) {
+      setSelectedAppointment(null)
+    }
+  }, [appointments, selectedAppointment])
+
+  useEffect(() => {
+    setSelectedAppointmentIds((current) => {
+      const validIds = current.filter((id) =>
+        appointments.some((appointment) => appointment.id === id),
+      )
+      return validIds.length === current.length ? current : validIds
+    })
+  }, [appointments])
+
+  const slotSessions = useMemo(() => {
+    if (!formDoctor || !formService || !formPatient || formAppointmentDate.length !== 10) {
+      return []
+    }
+    return DEFAULT_SLOT_SESSIONS
+  }, [formDoctor, formService, formPatient, formAppointmentDate])
+
+  useEffect(() => {
+    if (!formDoctor || !formService || formAppointmentDate.length !== 10) {
+      if (formSlot !== null) {
+        setFormSlot(null)
+      }
+      return
+    }
+    if (formSlot && !slotSessions.some((session) => session.slots.includes(formSlot))) {
+      setFormSlot(null)
+    }
+  }, [formDoctor, formService, formPatient, formAppointmentDate, formSlot, slotSessions])
 
   const closePicker = () => {
     setPickerTarget(null)
@@ -386,7 +749,9 @@ export default function AppointmentsScreen() {
               ? filterDoctorButtonRef.current
               : target === 'form-patient'
                 ? formPatientButtonRef.current
-                : formDoctorButtonRef.current
+                : target === 'form-doctor'
+                  ? formDoctorButtonRef.current
+                  : formServiceButtonRef.current
 
     setPickerTarget(target)
     setPickerPosition(null)
@@ -417,6 +782,9 @@ export default function AppointmentsScreen() {
         break
       case 'form-doctor':
         setFormDoctor(value as DoctorOptionValue)
+        break
+      case 'form-service':
+        setFormService(value as ServiceOptionValue)
         break
       default:
         break
@@ -467,7 +835,7 @@ export default function AppointmentsScreen() {
     const now = new Date()
     const selectedDate = filterDate && filterDate.length === 10 ? filterDate : null
 
-    return APPOINTMENTS.filter((appointment) => {
+    return appointments.filter((appointment) => {
       if (selectedDate && appointment.schedule.date !== selectedDate) {
         return false
       }
@@ -495,7 +863,191 @@ export default function AppointmentsScreen() {
 
       return appointmentDate < now
     })
-  }, [segmentKey, filterDate, filterStatus, filterPatient, filterDoctor])
+  }, [appointments, segmentKey, filterDate, filterStatus, filterPatient, filterDoctor])
+
+  const ensureExportDirectory = useCallback(async () => {
+    const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory
+    if (!baseDir) {
+      throw new Error('File storage is not available on this device.')
+    }
+    const exportDir = `${baseDir}exports`
+    const dirInfo = await FileSystem.getInfoAsync(exportDir)
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(exportDir, { intermediates: true })
+    }
+    return exportDir
+  }, [])
+
+  const triggerWebDownload = useCallback((content: string, filename: string, mimeType: string) => {
+    if (typeof document === 'undefined') {
+      console.warn('Web download is not supported in this environment.')
+      return
+    }
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }, [])
+
+  const triggerWebDownloadFromBlob = useCallback((blob: Blob, filename: string) => {
+    if (typeof document === 'undefined') {
+      console.warn('Web download is not supported in this environment.')
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }, [])
+
+  const handleExport = useCallback(
+    async (type: ExportOptionId) => {
+      if (filteredAppointments.length === 0) {
+        Alert.alert('No data to export', 'Adjust the filters to include at least one appointment.')
+        return
+      }
+
+      const exportRows = buildExportRows(filteredAppointments)
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const segmentSuffix = segmentKey.toLowerCase()
+      const baseName = `appointments-${segmentSuffix}-${timestamp}`
+      const exportTitle = `Appointments Export (${segmentKey})`
+
+      try {
+        if (type === 'csv') {
+          const csvContent = buildCsvContent(exportRows)
+          if (Platform.OS === 'web') {
+            triggerWebDownload(csvContent, `${baseName}.csv`, 'text/csv;charset=utf-8')
+          } else {
+            const directory = await ensureExportDirectory()
+            const fileUri = `${directory}/${baseName}.csv`
+            await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+              encoding: FileSystem.EncodingType.UTF8,
+            })
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(fileUri, {
+                mimeType: 'text/csv',
+                dialogTitle: 'Export appointments CSV',
+                UTI: 'public.comma-separated-values-text',
+              })
+            } else {
+              Alert.alert('Export saved', `CSV saved to: ${fileUri}`)
+            }
+          }
+          setHoveredExport(null)
+          return
+        }
+
+        if (type === 'excel') {
+          const htmlContent = buildHtmlTableDocument(exportRows, exportTitle)
+          if (Platform.OS === 'web') {
+            triggerWebDownload(htmlContent, `${baseName}.xls`, 'application/vnd.ms-excel')
+          } else {
+            const directory = await ensureExportDirectory()
+            const fileUri = `${directory}/${baseName}.xls`
+            await FileSystem.writeAsStringAsync(fileUri, htmlContent, {
+              encoding: FileSystem.EncodingType.UTF8,
+            })
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(fileUri, {
+                mimeType: 'application/vnd.ms-excel',
+                dialogTitle: 'Export appointments Excel',
+                UTI: 'com.microsoft.excel.xls',
+              })
+            } else {
+              Alert.alert('Export saved', `Excel file saved to: ${fileUri}`)
+            }
+          }
+          setHoveredExport(null)
+          return
+        }
+
+        if (Platform.OS === 'web') {
+          const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+          doc.setFontSize(20)
+          doc.text('Appointments', doc.internal.pageSize.getWidth() / 2, 60, {
+            align: 'center',
+          })
+          const pdfHeadRow = ['ID', 'Date', 'Time', 'Description', 'Status', 'Doctor']
+          const pdfBodyRows = exportRows.map((row) => [
+            row.id,
+            row.date,
+            row.time.split(' - ')[0],
+            row.service,
+            row.status,
+            row.provider,
+          ])
+          autoTable(doc, {
+            head: [pdfHeadRow],
+            body: pdfBodyRows,
+            startY: 90,
+            margin: { left: 40, right: 40 },
+            styles: {
+              fontSize: 11,
+              halign: 'left',
+              cellPadding: { top: 6, bottom: 6, left: 6, right: 6 },
+              overflow: 'linebreak',
+            },
+            headStyles: {
+              fillColor: [22, 94, 179],
+              textColor: '#FFFFFF',
+              fontStyle: 'bold',
+            },
+            alternateRowStyles: { fillColor: [245, 249, 255] },
+            columnStyles: {
+              0: { cellWidth: 35 },
+              1: { cellWidth: 70 },
+              2: { cellWidth: 60, halign: 'center' },
+              3: { cellWidth: 150 },
+              4: { cellWidth: 70 },
+              5: { cellWidth: 130 },
+            },
+            tableLineColor: '#E0E7F5',
+            tableLineWidth: 0.5,
+          })
+          const pdfBlob = doc.output('blob')
+          triggerWebDownloadFromBlob(pdfBlob, `${baseName}.pdf`)
+          setHoveredExport(null)
+          return
+        }
+
+        const pdfHtml = buildHtmlTableDocument(exportRows, exportTitle)
+        const { uri } = await Print.printToFileAsync({ html: pdfHtml })
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Export appointments PDF',
+            UTI: 'com.adobe.pdf',
+          })
+        } else {
+          Alert.alert('Export saved', `PDF saved to: ${uri}`)
+        }
+        setHoveredExport(null)
+      } catch (error) {
+        console.warn('Failed to export appointments', error)
+        Alert.alert(
+          'Export failed',
+          'Something went wrong while creating the export. Please try again.',
+        )
+      }
+    },
+    [
+      filteredAppointments,
+      segmentKey,
+      ensureExportDirectory,
+      triggerWebDownload,
+      triggerWebDownloadFromBlob,
+    ],
+  )
 
   // Helper flags determine visibility of bulk/exports (only when multiple records exist).
   const hasMultipleRecords = filteredAppointments.length > 1
@@ -521,12 +1073,12 @@ export default function AppointmentsScreen() {
     setFormExpanded((prev) => {
       const next = !prev
       if (next) {
-        setFormAppointmentDate(getTodayISO())
-        setFormStatus('Booked')
-        setFormPatient(null)
-        setFormDoctor(null)
-      } else if (pickerTarget && pickerTarget.startsWith('form-')) {
-        closePicker()
+        resetFormFields()
+      } else {
+        resetFormFields()
+        if (pickerTarget && pickerTarget.startsWith('form-')) {
+          closePicker()
+        }
       }
       return next
     })
@@ -538,20 +1090,79 @@ export default function AppointmentsScreen() {
     setSelectedAppointment(appointment)
   }
 
-  // Backend integration: trigger server-side PDF/export once available.
-  const handlePrintAppointment = (appointment: AppointmentRow) => {
-    void appointment
-  }
+  const handlePrintAppointment = useCallback(
+    async (appointment: AppointmentRow) => {
+      try {
+        const html = buildAppointmentPrintHtml(appointment)
+        if (Platform.OS === 'web') {
+          const iframe = document.createElement('iframe')
+          iframe.style.position = 'fixed'
+          iframe.style.right = '0'
+          iframe.style.bottom = '0'
+          iframe.style.width = '0'
+          iframe.style.height = '0'
+          iframe.style.border = '0'
+          document.body.appendChild(iframe)
+          const frameWindow = iframe.contentWindow
+          if (!frameWindow) {
+            document.body.removeChild(iframe)
+            Alert.alert('Print unavailable', 'Unable to access print frame.')
+            return
+          }
+          frameWindow.document.open()
+          frameWindow.document.write(html)
+          frameWindow.document.close()
+          frameWindow.focus()
+          frameWindow.print()
+          setTimeout(() => {
+            document.body.removeChild(iframe)
+          }, 1000)
+          return
+        }
+
+        const { uri } = await Print.printToFileAsync({ html })
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Share appointment',
+            UTI: 'com.adobe.pdf',
+          })
+        } else {
+          await Print.printAsync({ uri })
+        }
+      } catch (error) {
+        console.warn('Unable to print appointment', error)
+        Alert.alert('Print failed', 'Could not generate the appointment preview.')
+      }
+    },
+    [],
+  )
 
   // Backend integration: call delete endpoint and refresh local list.
-  const handleDeleteAppointment = (appointment: AppointmentRow) => {
-    void appointment
-  }
+  const confirmDeleteAppointment = useCallback(() => {
+    if (!pendingDeleteAppointment) {
+      return
+    }
+    const appointment = pendingDeleteAppointment
+    setAppointments((current) => {
+      const updated = current.filter((record) => record.id !== appointment.id)
+      if (updated.length === current.length) {
+        return current
+      }
+      void persistAppointments(updated)
+      return updated
+    })
+    setSelectedAppointmentIds((current) => current.filter((id) => id !== appointment.id))
+    setPendingDeleteAppointment(null)
+  }, [pendingDeleteAppointment, persistAppointments])
 
-  // Backend integration: invoke export endpoint for the selected format.
-  const handleExport = (type: ExportOptionId) => {
-    void type
-  }
+  const cancelDeleteAppointment = useCallback(() => {
+    setPendingDeleteAppointment(null)
+  }, [])
+
+  const handleDeleteAppointment = useCallback((appointment: AppointmentRow) => {
+    setPendingDeleteAppointment(appointment)
+  }, [])
 
   // Enables multi-select delete mode; future backend will likely read this flag.
   const toggleBulkDeleteMode = () => {
@@ -585,9 +1196,95 @@ export default function AppointmentsScreen() {
     })
   }
 
-  const handleDeleteSelectedAppointments = () => {
-    void selectedAppointmentIds
-  }
+  const handleDeleteSelectedAppointments = useCallback(() => {
+    if (selectedAppointmentIds.length === 0) {
+      return
+    }
+    setAppointments((current) => {
+      const idSet = new Set(selectedAppointmentIds)
+      const updated = current.filter((appointment) => !idSet.has(appointment.id))
+      if (updated.length === current.length) {
+        return current
+      }
+      void persistAppointments(updated)
+      return updated
+    })
+    setSelectedAppointmentIds([])
+  }, [persistAppointments, selectedAppointmentIds])
+
+  // Backend integration: replace this local append with an API call when the appointments endpoint is ready.
+  const handleSaveAppointment = useCallback(() => {
+    if (
+      !formDoctor ||
+      !formPatient ||
+      !formService ||
+      !formSlot ||
+      formAppointmentDate.length !== 10
+    ) {
+      Alert.alert(
+        'Missing details',
+        'Select a doctor, patient, service, date, and an available slot before saving.',
+      )
+      return
+    }
+
+    const patientOption = getPatientOption(formPatient)
+    const doctorOption = getDoctorOption(formDoctor)
+    const serviceOption = getServiceOption(formService)
+    const charge = serviceOption?.charge ?? { amount: 0, currency: 'CAD' }
+
+    const newAppointment: AppointmentRow = {
+      id: `${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      patient: {
+        name: patientOption?.label ?? formPatient,
+        initials:
+          patientOption?.initials ??
+          extractInitials(patientOption?.label ?? formPatient),
+      },
+      schedule: {
+        date: formAppointmentDate,
+        startTime: formSlot,
+        endTime: deriveEndTime(formSlot, serviceOption),
+      },
+      provider: doctorOption?.label ?? formDoctor,
+      clinic: doctorOption?.clinic ?? undefined,
+      service: serviceOption?.label ?? formService,
+      description: serviceOption?.description ?? 'Awaiting service notes',
+      charges: {
+        amount: charge.amount,
+        currency: charge.currency,
+      },
+      paymentMode: 'Manual',
+      status: formStatus,
+      patientContact: patientOption?.contact,
+      auditTrail: ['Created locally via appointment form'],
+    }
+
+    setAppointments((current) => {
+      const updated = [...current, newAppointment].sort(
+        (a, b) =>
+          getScheduleDateTime(a.schedule).getTime() -
+          getScheduleDateTime(b.schedule).getTime(),
+      )
+      void persistAppointments(updated)
+      return updated
+    })
+    setSelectedAppointmentIds([])
+    resetFormFields()
+    setFormExpanded(false)
+    setPickerTarget(null)
+    setPickerPosition(null)
+    Alert.alert('Appointment saved', 'The appointment has been added to the schedule.')
+  }, [
+    formDoctor,
+    formPatient,
+    formService,
+    formSlot,
+    formAppointmentDate,
+    formStatus,
+    persistAppointments,
+    resetFormFields,
+  ])
 
   const sanitizeDateInput = (raw: string) => {
     const digits = raw.replace(/[^0-9]/g, '').slice(0, 8)
@@ -1181,6 +1878,20 @@ export default function AppointmentsScreen() {
     const doctorDisplayLabel = formDoctor ? getDoctorOptionLabel(formDoctor) : 'Select doctor'
     const patientDisplayLabel = formPatient ? getPatientOptionLabel(formPatient) : 'Select patient'
     const statusDisplayLabel = getStatusOptionLabel(formStatus)
+    const serviceDisplayLabel = formService ? getServiceOptionLabel(formService) : 'Select service'
+    const selectedService = formService ? getServiceOption(formService) : null
+    // Canadian clinic placeholder: service descriptions and taxes are tuned to provincial GST/HST rules.
+    const serviceDetailText =
+      selectedService?.description ?? 'Select a service to view details.'
+    const serviceTaxText = selectedService?.tax ?? 'Select a service to view tax information.'
+    const slotCriteriaMet = Boolean(
+      formDoctor && formService && formPatient && formAppointmentDate.length === 10,
+    )
+    const slotBoxPopulated = slotCriteriaMet && slotSessions.length > 0
+    const selectedSlotEnd = formSlot ? deriveEndTime(formSlot, selectedService) : null
+    const slotSummaryText = formSlot && selectedSlotEnd ? `${formSlot} - ${selectedSlotEnd}` : null
+    const canSaveAppointment =
+      slotCriteriaMet && Boolean(formSlot) && formStatus !== undefined && Boolean(formPatient)
 
     return (
       <View style={styles.formContent}>
@@ -1219,14 +1930,21 @@ export default function AppointmentsScreen() {
                   <Text style={styles.inlineLink}>+ Add Service</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.formInput}
-                onPress={interactive ? () => { } : undefined}
-                activeOpacity={interactive ? 0.7 : 1}
+              <Pressable
+                ref={interactive ? formServiceButtonRef : undefined}
+                style={({ pressed }) => [
+                  styles.formInput,
+                  pressed && interactive && styles.formInputPressed,
+                ]}
+                onPress={interactive ? () => openPicker('form-service') : undefined}
+                accessibilityRole="button"
+                accessibilityLabel="Select service"
               >
-                <Text style={styles.formPlaceholder}>Search</Text>
+                <Text style={formService ? styles.formValue : styles.formPlaceholder}>
+                  {serviceDisplayLabel}
+                </Text>
                 <Feather name="chevron-down" size={18} color="#3A6B9C" />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             {/* Date */}
@@ -1301,20 +2019,79 @@ export default function AppointmentsScreen() {
               <Text style={styles.formLabel}>
                 Available Slot <Text style={styles.requiredMark}>*</Text>
               </Text>
-              <View style={styles.slotBox}>
-                <Text style={styles.slotPlaceholder}>No time slots found</Text>
+              <View style={[styles.slotBox, slotBoxPopulated && styles.slotBoxPopulated]}>
+                {!slotCriteriaMet && (
+                  <Text style={styles.slotPlaceholder}>
+                    Select doctor, service, patient, and date to view available slots.
+                  </Text>
+                )}
+                {slotCriteriaMet && !slotBoxPopulated && (
+                  <Text style={styles.slotPlaceholder}>
+                    No slots available for this selection.
+                  </Text>
+                )}
+                {slotBoxPopulated &&
+                  slotSessions.map((session) => (
+                    <View key={session.label} style={styles.slotSession}>
+                      <Text style={styles.slotSessionLabel}>{session.label}</Text>
+                      <View style={styles.slotButtonRow}>
+                        {session.slots.map((slot) => {
+                          const isSelected = slot === formSlot
+                          return (
+                            <Pressable
+                              key={slot}
+                              style={({ pressed }) => [
+                                styles.slotButton,
+                                isSelected && styles.slotButtonSelected,
+                                pressed && interactive && styles.slotButtonPressed,
+                              ]}
+                              onPress={
+                                interactive
+                                  ? () =>
+                                      setFormSlot((current) => (current === slot ? null : slot))
+                                  : undefined
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel={`Select ${slot} slot`}
+                              disabled={!interactive}
+                            >
+                              <Text
+                                style={[
+                                  styles.slotButtonText,
+                                  isSelected && styles.slotButtonTextSelected,
+                                ]}
+                              >
+                                {slot}
+                              </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+        </View>
+      ))}
+                {slotBoxPopulated && (
+                  <Text style={styles.slotSelectionSummary}>
+                    {slotSummaryText
+                      ? `Selected slot: ${slotSummaryText}`
+                      : 'Select a slot to continue.'}
+                  </Text>
+                )}
               </View>
             </View>
             <View style={styles.formField}>
               <Text style={styles.formLabel}>Service Detail</Text>
               <View style={styles.infoBox}>
-                <Text style={styles.infoPlaceholder}>No service detail found..</Text>
+                <Text style={selectedService ? styles.infoValue : styles.infoPlaceholder}>
+                  {serviceDetailText}
+                </Text>
               </View>
             </View>
             <View style={styles.formField}>
               <Text style={styles.formLabel}>Tax</Text>
               <View style={styles.infoBox}>
-                <Text style={styles.infoPlaceholder}>No tax found.</Text>
+                <Text style={selectedService ? styles.infoValue : styles.infoPlaceholder}>
+                  {serviceTaxText}
+                </Text>
               </View>
             </View>
           </View>
@@ -1326,7 +2103,15 @@ export default function AppointmentsScreen() {
             <>
               <PageActionButton
                 label="Save"
-                onPress={() => { }}
+                onPress={handleSaveAppointment}
+                disabled={!canSaveAppointment}
+                style={({ pressed }) =>
+                  !canSaveAppointment
+                    ? { opacity: 0.45 }
+                    : pressed
+                      ? { transform: [{ scale: 0.97 }] }
+                      : undefined
+                }
                 icon={<Feather name="save" size={18} color="#FFFFFF" />}
               />
               <TouchableOpacity style={styles.cancelButton} onPress={toggleForm}>
@@ -1347,7 +2132,7 @@ export default function AppointmentsScreen() {
       return null
     }
 
-    let options: Array<{ value: string; label: string }>
+    let options: { value: string; label: string }[]
     let selectedValue: string
 
     switch (pickerTarget) {
@@ -1375,6 +2160,10 @@ export default function AppointmentsScreen() {
         options = [...DOCTOR_OPTIONS]
         selectedValue = formDoctor ?? ''
         break
+      case 'form-service':
+        options = SERVICE_OPTIONS.map(({ value, label }) => ({ value, label }))
+        selectedValue = formService ?? ''
+        break
       default:
         options = []
         selectedValue = ''
@@ -1385,7 +2174,7 @@ export default function AppointmentsScreen() {
       return null
     }
 
-    const cardStyle: Array<object> = [styles.statusPickerCard]
+    const cardStyle: object[] = [styles.statusPickerCard]
     if (pickerPosition) {
       const dropdownWidth = Math.max(pickerPosition.width, 220)
       const constrainedWidth = Math.min(dropdownWidth, 320)
@@ -1401,7 +2190,7 @@ export default function AppointmentsScreen() {
     }
 
     return (
-      <Modal visible transparent animationType="fade" onRequestClose={closePicker}>
+      <RNModal visible transparent animationType="fade" onRequestClose={closePicker}>
         <View style={styles.statusPickerBackdrop}>
           <Pressable style={styles.statusPickerDismiss} onPress={closePicker} />
           <View style={cardStyle}>
@@ -1428,6 +2217,49 @@ export default function AppointmentsScreen() {
                 </Pressable>
               )
             })}
+          </View>
+        </View>
+      </RNModal>
+    )
+  }
+
+  const renderDeleteConfirmationModal = () => {
+    if (!pendingDeleteAppointment) {
+      return null
+    }
+
+    return (
+      <Modal
+        isVisible
+        onBackdropPress={cancelDeleteAppointment}
+        onBackButtonPress={cancelDeleteAppointment}
+        useNativeDriver
+        hideModalContentWhileAnimating
+        backdropOpacity={0.45}
+      >
+        <View style={styles.confirmModalWrapper}>
+          <View style={styles.confirmModalCard}>
+            <View style={styles.confirmModalAccent} />
+            <Text style={styles.confirmModalTitle}>Are you sure ?</Text>
+            <Text style={styles.confirmModalMessage}>Press yes to delete appointment</Text>
+            <View style={styles.confirmModalActions}>
+              <TouchableOpacity
+                style={styles.confirmModalYes}
+                onPress={confirmDeleteAppointment}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm delete appointment"
+              >
+                <Text style={styles.confirmModalYesLabel}>YES</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmModalCancel}
+                onPress={cancelDeleteAppointment}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel delete appointment"
+              >
+                <Text style={styles.confirmModalCancelLabel}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1827,9 +2659,10 @@ export default function AppointmentsScreen() {
         </Card>
       </ScrollView>
       {renderPickerModal()}
+      {renderDeleteConfirmationModal()}
 
       {/* Import modal: guides users through CSV upload workflow. */}
-      <Modal visible={importVisible} transparent animationType="fade" onRequestClose={closeImport}>
+      <RNModal visible={importVisible} transparent animationType="fade" onRequestClose={closeImport}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
@@ -1908,12 +2741,12 @@ export default function AppointmentsScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      </RNModal>
       {nativePickerAvailable &&
         Platform.OS === 'ios' &&
         activeNativePicker &&
         NativeDateTimePicker && (
-          <Modal
+          <RNModal
             visible
             transparent
             animationType="fade"
@@ -1947,10 +2780,10 @@ export default function AppointmentsScreen() {
                 </View>
               </Pressable>
             </Pressable>
-          </Modal>
+          </RNModal>
         )}
       {/* Detail modal: surfaces read-only appointment snapshot. */}
-      <Modal
+      <RNModal
         visible={selectedAppointment !== null}
         transparent
         animationType="fade"
@@ -2062,7 +2895,7 @@ export default function AppointmentsScreen() {
             )}
           </View>
         </View>
-      </Modal>
+      </RNModal>
 
     </SafeAreaView>
   )
@@ -2495,15 +3328,70 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C8D7ED',
     borderRadius: 24,
-    height: 150,
+    minHeight: 150,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    paddingHorizontal: Styles.spacing.lg,
+    paddingVertical: Styles.spacing.md,
+    gap: Styles.spacing.lg,
+  },
+  slotBoxPopulated: {
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
   },
   slotPlaceholder: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1F3D6E',
+    textAlign: 'center',
+  },
+  slotSession: {
+    gap: Styles.spacing.sm,
+    alignItems: 'center',
+  },
+  slotSessionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.light.text,
+  },
+  slotButtonRow: {
+    flexDirection: 'row',
+    gap: Styles.spacing.md,
+    justifyContent: 'center',
+  },
+  slotSelectionSummary: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.light.text,
+    textAlign: 'center',
+    marginTop: Styles.spacing.md,
+  },
+  slotButton: {
+    borderWidth: 1,
+    borderColor: '#4D88D6',
+    borderRadius: 24,
+    paddingHorizontal: Styles.spacing.lg,
+    paddingVertical: Styles.spacing.sm,
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  slotButtonSelected: {
+    backgroundColor: '#2F6FE1',
+    borderColor: '#2F6FE1',
+  },
+  slotButtonPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  slotButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F3D6E',
+  },
+  slotButtonTextSelected: {
+    color: '#FFFFFF',
   },
   infoBox: {
     borderWidth: 1,
@@ -2516,6 +3404,11 @@ const styles = StyleSheet.create({
   infoPlaceholder: {
     fontSize: 14,
     color: '#8EA2C0',
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.light.text,
   },
   formActions: {
     flexDirection: 'row',
@@ -2986,6 +3879,78 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#8EA2C0',
   },
+  confirmModalWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmModalCard: {
+    width: 280,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    paddingHorizontal: Styles.spacing.xl,
+    paddingTop: Styles.spacing.xl,
+    paddingBottom: Styles.spacing.xl,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  confirmModalAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 8,
+    backgroundColor: '#F84F4F',
+  },
+  confirmModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F3D6E',
+    marginTop: Styles.spacing.md,
+  },
+  confirmModalMessage: {
+    fontSize: 14,
+    color: '#1F3D6E',
+    marginTop: Styles.spacing.xs,
+    textAlign: 'center',
+  },
+  confirmModalActions: {
+    flexDirection: 'row',
+    gap: Styles.spacing.md,
+    marginTop: Styles.spacing.lg,
+  },
+  confirmModalYes: {
+    backgroundColor: '#E32828',
+    borderRadius: 16,
+    paddingHorizontal: Styles.spacing.xl,
+    paddingVertical: Styles.spacing.sm,
+    minWidth: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmModalYesLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  confirmModalCancel: {
+    backgroundColor: '#ECEFF4',
+    borderRadius: 16,
+    paddingHorizontal: Styles.spacing.lg,
+    paddingVertical: Styles.spacing.sm,
+    minWidth: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmModalCancelLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1F3D6E',
+  },
   uploadRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3201,11 +4166,6 @@ const renderDetailValue = (
   highlight?: boolean,
   statusKey?: AppointmentStatus,
 ) => {
-  const statusStyle =
-    highlight && statusKey
-      ? STATUS_STYLES[statusKey] ?? { background: '#2F6FE1', color: '#FFFFFF' }
-      : null
-
   return (
     <Text style={styles.detailsRowText}>
       <Text style={styles.detailsLabel}>{label} </Text>
@@ -3225,10 +4185,4 @@ const renderDetailValue = (
     </Text>
   )
 }
-
-
-
-
-
-
 

@@ -1,0 +1,35 @@
+[
+  {
+    "value": "Mild Illness Assessment",
+    "label": "Mild Illness Assessment",
+    "description": "15 minute consult for low acuity symptoms; priced for GST-only provinces (e.g., Alberta).",
+    "tax": "GST (Federal) 5%",
+    "charge": {
+      "amount": 50,
+      "currency": "CAD"
+    },
+    "durationMinutes": 15
+  },
+  {
+    "value": "Neurology Consultation",
+    "label": "Neurology Consultation",
+    "description": "45 minute specialist visit focused on neurological concerns; Ontario private pay rate.",
+    "tax": "HST (Ontario) 13%",
+    "charge": {
+      "amount": 180,
+      "currency": "CAD"
+    },
+    "durationMinutes": 45
+  },
+  {
+    "value": "Pediatric Wellness Visit",
+    "label": "Pediatric Wellness Visit",
+    "description": "30 minute preventative care exam for pediatric patients; priced for GST/PST provinces.",
+    "tax": "GST 5% + PST (BC) 7%",
+    "charge": {
+      "amount": 90,
+      "currency": "CAD"
+    },
+    "durationMinutes": 30
+  }
+]

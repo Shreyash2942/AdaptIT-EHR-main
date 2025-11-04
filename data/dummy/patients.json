@@ -1,0 +1,20 @@
+[
+  {
+    "value": "AdaptIT_Sample_Patient1",
+    "label": "AdaptIT_Sample_Patient1",
+    "initials": "AS",
+    "contact": "608-213-5806"
+  },
+  {
+    "value": "AdaptIT_Sample_Patient2",
+    "label": "AdaptIT_Sample_Patient2",
+    "initials": "AP",
+    "contact": "403-555-8890"
+  },
+  {
+    "value": "AdaptIT_Sample_Patient3",
+    "label": "AdaptIT_Sample_Patient3",
+    "initials": "AR",
+    "contact": "312-555-0126"
+  }
+]
