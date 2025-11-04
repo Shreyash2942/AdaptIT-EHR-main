@@ -33,14 +33,6 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { Colors } from '@/constants/Colors'
 import { Styles } from '@/constants/Styles'
 
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      input: any
-    }
-  }
-}
-
 declare const require: any
 
 const WEB_DATE_INPUT_CLASS = 'appointments-date-input-overlay'
@@ -593,6 +585,7 @@ export default function AppointmentsScreen() {
   const [filtersExpanded, setFiltersExpanded] = useState(false)
   const [formExpanded, setFormExpanded] = useState(false)
   const [importVisible, setImportVisible] = useState(false)
+  const [filePickerVisible, setFilePickerVisible] = useState(false)
   // Layout measurement caches used to drive expand/collapse animations.
   const [measuredFilterHeight, setMeasuredFilterHeight] = useState(0)
   const [measuredFormHeight, setMeasuredFormHeight] = useState(0)
@@ -606,6 +599,9 @@ export default function AppointmentsScreen() {
       : null
   const [appointments, setAppointments] = useState<AppointmentRow[]>(APPOINTMENTS_SEED)
   const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<string[]>([])
+  const [importFormat, setImportFormat] = useState<'csv' | 'xls'>('csv')
+  const [selectedImportFile, setSelectedImportFile] = useState<string | null>(null)
+  const [filePickerTab, setFilePickerTab] = useState<'upload' | 'media'>('upload')
   const [pendingDeleteAppointment, setPendingDeleteAppointment] = useState<AppointmentRow | null>(
     null,
   )
@@ -630,6 +626,7 @@ export default function AppointmentsScreen() {
   const formPatientButtonRef = useRef<View | null>(null)
   const formDoctorButtonRef = useRef<View | null>(null)
   const formServiceButtonRef = useRef<View | null>(null)
+  const webFileInputRef = useRef<any>(null)
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null)
   const [pickerPosition, setPickerPosition] = useState<PickerPosition | null>(null)
   // Persisted appointments: load from local JSON (Expo document directory) and fall back to bundled seed.
@@ -1083,7 +1080,31 @@ export default function AppointmentsScreen() {
       return next
     })
   const openImport = () => setImportVisible(true)
-  const closeImport = () => setImportVisible(false)
+  const closeImport = () => {
+    setImportVisible(false)
+    setFilePickerVisible(false)
+  }
+  const openFilePickerModal = () => setFilePickerVisible(true)
+  const closeFilePickerModal = () => setFilePickerVisible(false)
+
+  const handleSelectFiles = () => {
+    if (Platform.OS === 'web') {
+      webFileInputRef.current?.click?.()
+      return
+    }
+    Alert.alert('Upload unavailable', 'File upload is only supported on web in this demo.')
+  }
+
+  const handleWebFileInputChange = (event: any) => {
+    const file = event?.target?.files?.[0]
+    if (file) {
+      setSelectedImportFile(file.name)
+    }
+    if (event?.target) {
+      event.target.value = ''
+    }
+    closeFilePickerModal()
+  }
 
   // Backend integration: wire up navigation or detail modal here.
   const handleViewAppointment = (appointment: AppointmentRow) => {
@@ -2680,21 +2701,51 @@ export default function AppointmentsScreen() {
               {/* File selection controls. */}
               <View style={styles.modalFieldRow}>
                 <View style={styles.modalField}>
-                  <Text style={styles.modalLabel}>Select type</Text>
-                  <TouchableOpacity style={styles.modalInput} onPress={() => { }}>
-                    <Text style={styles.modalPlaceholder}>Select type</Text>
-                    <Feather name="chevron-down" size={18} color="#3A6B9C" />
-                  </TouchableOpacity>
+                  <Text style={styles.modalLabel}>Select format</Text>
+                  <View style={styles.importFormatRow}>
+                    {[
+                      { id: 'csv', label: 'CSV (.csv)' },
+                      { id: 'xls', label: 'Excel (.xls)' },
+                    ].map((option) => {
+                      const isActive = importFormat === option.id
+                      return (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[
+                            styles.importFormatOption,
+                            isActive && styles.importFormatOptionActive,
+                          ]}
+                          onPress={() => setImportFormat(option.id as 'csv' | 'xls')}
+                        >
+                          <Text
+                            style={[
+                              styles.importFormatOptionText,
+                              isActive && styles.importFormatOptionTextActive,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      )
+                    })}
+                  </View>
                 </View>
                 <View style={styles.modalField}>
                   <Text style={styles.modalLabel}>Upload File</Text>
                   <View style={styles.uploadRow}>
-                    <Pressable style={styles.uploadButton}>
+                    <Pressable style={styles.uploadButton} onPress={openFilePickerModal}>
                       <Feather name="upload" size={18} color="#FFFFFF" />
-                      <Text style={styles.uploadButtonLabel}>Choose file</Text>
+                      <Text style={styles.uploadButtonLabel}>Upload file</Text>
                     </Pressable>
                     <View style={styles.uploadFileName}>
-                      <Text style={styles.modalPlaceholder}>No file Chosen</Text>
+                      <Text
+                        style={
+                          selectedImportFile ? styles.uploadFileLabel : styles.modalPlaceholder
+                        }
+                        numberOfLines={1}
+                      >
+                        {selectedImportFile ?? 'No file chosen'}
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -2742,6 +2793,60 @@ export default function AppointmentsScreen() {
           </View>
         </View>
       </RNModal>
+      <RNModal
+        visible={filePickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFilePickerModal}
+      >
+        <View style={styles.filePickerBackdrop}>
+          <View style={styles.filePickerContainer}>
+            <View style={styles.filePickerHeader}>
+              <Text style={styles.filePickerTitle}>Choose file</Text>
+              <TouchableOpacity onPress={closeFilePickerModal} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Feather name="x" size={22} color="#1F3D6E" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.filePickerTabs}>
+              {[
+                { id: 'upload', label: 'Upload files' },
+                { id: 'media', label: 'Media Library' },
+              ].map((tab) => {
+                const active = filePickerTab === tab.id
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    style={[styles.filePickerTab, active && styles.filePickerTabActive]}
+                    onPress={() => setFilePickerTab(tab.id as 'upload' | 'media')}
+                  >
+                    <Text
+                      style={[styles.filePickerTabText, active && styles.filePickerTabTextActive]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+            <View style={styles.filePickerBody}>
+              <Text style={styles.filePickerInstruction}>Drop files to upload</Text>
+              <Text style={styles.filePickerSubtext}>or</Text>
+              <TouchableOpacity style={styles.filePickerSelectButton} onPress={handleSelectFiles}>
+                <Text style={styles.filePickerSelectButtonText}>Select Files</Text>
+              </TouchableOpacity>
+              <Text style={styles.filePickerSizeHint}>Maximum upload file size: 1 GB.</Text>
+            </View>
+          </View>
+        </View>
+      </RNModal>
+      {Platform.OS === 'web' &&
+        React.createElement('input', {
+          ref: webFileInputRef,
+          type: 'file',
+          accept: importFormat === 'csv' ? '.csv' : '.xls,.xlsx',
+          style: { display: 'none' },
+          onChange: handleWebFileInputChange,
+        })}
       {nativePickerAvailable &&
         Platform.OS === 'ios' &&
         activeNativePicker &&
@@ -3864,6 +3969,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.light.text,
   },
+  importFormatRow: {
+    flexDirection: 'row',
+    marginTop: Styles.spacing.sm,
+    gap: Styles.spacing.sm,
+    flexWrap: 'wrap',
+  },
+  importFormatOption: {
+    paddingHorizontal: Styles.spacing.lg,
+    paddingVertical: Styles.spacing.sm,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#4D88D6',
+    backgroundColor: '#FFFFFF',
+  },
+  importFormatOptionActive: {
+    backgroundColor: '#4D88D6',
+  },
+  importFormatOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4D88D6',
+  },
+  importFormatOptionTextActive: {
+    color: '#FFFFFF',
+  },
   modalInput: {
     borderWidth: 1,
     borderColor: '#4D88D6',
@@ -3981,6 +4111,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
+  uploadFileLabel: {
+    fontSize: 14,
+    color: '#1F3D6E',
+    fontWeight: '600',
+  },
   sampleLinkRow: {
     paddingVertical: Styles.spacing.xs,
     marginTop: Styles.spacing.xs,
@@ -4036,6 +4171,89 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.light.primary,
+  },
+  filePickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(6, 21, 46, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Styles.spacing.xl,
+  },
+  filePickerContainer: {
+    width: '100%',
+    maxWidth: 900,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: Styles.spacing.xl,
+    gap: Styles.spacing.lg,
+  },
+  filePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  filePickerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F3D6E',
+  },
+  filePickerTabs: {
+    flexDirection: 'row',
+    gap: Styles.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E4EAF5',
+  },
+  filePickerTab: {
+    paddingVertical: Styles.spacing.sm,
+    paddingHorizontal: Styles.spacing.lg,
+  },
+  filePickerTabActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#1F6FE1',
+  },
+  filePickerTabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#7A8AA7',
+  },
+  filePickerTabTextActive: {
+    color: '#1F6FE1',
+  },
+  filePickerBody: {
+    borderWidth: 1,
+    borderColor: '#D5DFEF',
+    borderRadius: 12,
+    backgroundColor: '#F7FAFF',
+    paddingVertical: Styles.spacing.xxl,
+    alignItems: 'center',
+    gap: Styles.spacing.sm,
+  },
+  filePickerInstruction: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1F3D6E',
+  },
+  filePickerSubtext: {
+    fontSize: 14,
+    color: '#7A8AA7',
+  },
+  filePickerSelectButton: {
+    paddingHorizontal: Styles.spacing.xl,
+    paddingVertical: Styles.spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1F6FE1',
+    marginTop: Styles.spacing.sm,
+  },
+  filePickerSelectButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F6FE1',
+  },
+  filePickerSizeHint: {
+    fontSize: 13,
+    color: '#7A8AA7',
+    marginTop: Styles.spacing.sm,
   },
 
   // Appointment details modal styles.
